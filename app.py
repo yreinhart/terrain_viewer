@@ -801,6 +801,20 @@ def render_flow(X, Y, grid, rain_mm, runoff_fraction, show_vectors, vector_step,
         )
         fig.update_yaxes(scaleanchor="x", scaleratio=1)
 
+    # Легенду выносим под карту: по умолчанию Plotly ставит ее справа сверху,
+    # где она пересекается с заголовком цветовой шкалы.
+    fig.update_layout(
+        legend=dict(
+            orientation="h",
+            x=0.0,
+            xanchor="left",
+            y=-0.20,
+            yanchor="top",
+            bgcolor="rgba(0,0,0,0)",
+        ),
+        margin=dict(t=85, b=135, l=70, r=115),
+    )
+
     _, _, cell_area = get_grid_step(grid)
     valid_area = float(np.count_nonzero(valid) * cell_area)
     rain_volume = valid_area * rain_mm / 1000 * runoff_fraction
