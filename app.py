@@ -47,7 +47,8 @@ def init_state():
         "target_h": -0.20,
         "soil": "Карьерный песок средний",
         "exclude_zero": True,
-        "mode": "Карта высот + горизонтали",
+        "mode": "2D модель",
+        "surface_2d_type": "Карта высот + горизонтали",
         "surface_type": "Поверхность + каркас",
         "water_level": None,
         "flow_rain_mm": 20,
@@ -408,6 +409,7 @@ def apply_project_settings(settings):
         "soil": "soil",
         "exclude_zero": "exclude_zero",
         "mode": "mode",
+        "surface_2d_type": "surface_2d_type",
         "surface_type": "surface_type",
         "x_min": "x_min",
         "x_max": "x_max",
@@ -419,7 +421,7 @@ def apply_project_settings(settings):
             st.session_state[dst] = settings[src]
 
 
-def render_heatmap(X, Y, Z, x_min, x_max, y_min, y_max):
+def render_heatmap(X, Y, Z, x_min, x_max, y_min, y_max, show_grid=False):
     fig = go.Figure(data=go.Heatmap(
         x=X,
         y=Y,
@@ -428,8 +430,19 @@ def render_heatmap(X, Y, Z, x_min, x_max, y_min, y_max):
         colorbar=dict(title="H, м"),
     ))
     add_selected_rect(fig, x_min, x_max, y_min, y_max)
-    fig.update_layout(title="Карта высот участка", xaxis_title="X, м", yaxis_title="Y, м", height=800)
+
+    fig.update_layout(
+        title="Карта высот участка" + (" с сеткой" if show_grid else ""),
+        xaxis_title="X, м",
+        yaxis_title="Y, м",
+        height=800,
+    )
     fig.update_yaxes(scaleanchor="x", scaleratio=1)
+
+    if show_grid:
+        fig.update_xaxes(showgrid=True, gridcolor="rgba(60,60,60,0.35)", dtick=float(np.min(np.diff(X))) if len(X) > 1 else 1)
+        fig.update_yaxes(showgrid=True, gridcolor="rgba(60,60,60,0.35)", dtick=float(np.min(np.diff(Y))) if len(Y) > 1 else 1)
+
     return fig
 
 
@@ -731,56 +744,89 @@ st.session_state.y_min = max(y_default_min, min(float(st.session_state.y_min), y
 st.session_state.y_max = max(y_default_min, min(float(st.session_state.y_max), y_default_max))
 
 with st.sidebar:
-    st.header("Зона и подсыпка")
-
-    st.number_input("X min", min_value=x_default_min, max_value=x_default_max, step=x_step, key="x_min")
-    st.number_input("X max", min_value=x_default_min, max_value=x_default_max, step=x_step, key="x_max")
-    st.number_input("Y min", min_value=y_default_min, max_value=y_default_max, step=y_step, key="y_min")
-    st.number_input("Y max", min_value=y_default_min, max_value=y_default_max, step=y_step, key="y_max")
-
-    st.number_input("Целевая отметка, м", step=0.01, format="%.2f", key="target_h")
-    st.selectbox("Тип грунта", list(SOILS.keys()), index=list(SOILS.keys()).index(st.session_state.soil), key="soil")
-    st.checkbox("Исключать фундамент / H=0", key="exclude_zero")
-
     st.header("Визуализация")
+
     modes = [
-        "Карта высот",
-        "Горизонтали",
-        "Карта высот + горизонтали",
-        "Сток воды (D8)",
-        "Подтопление по уровню",
+        "2D модель",
         "3D модель",
         "3D статическая модель (Matplotlib)",
     ]
-    st.selectbox("Режим", modes, index=modes.index(st.session_state.mode) if st.session_state.mode in modes else 2, key="mode")
+    st.selectbox(
+        "Режим",
+        modes,
+        index=modes.index(st.session_state.mode) if st.session_state.mode in modes else 0,
+        key="mode",
+    )
 
-    if st.session_state.mode == "3D статическая модель (Matplotlib)":
-        surface_options = ["Поверхность с сеткой", "Гладкая поверхность", "Только каркас", "Поверхность + каркас"]
+    is_2d_mode = st.session_state.mode == "2D модель"
+
+    if is_2d_mode:
+        surface_2d_options = [
+            "Карта высот",
+            "Горизонтали",
+            "Карта высот + горизонтали",
+            "Сток воды (D8)",
+            "Подтопление по уровню",
+        ]
+        st.selectbox(
+            "Тип 2D поверхности",
+            surface_2d_options,
+            index=surface_2d_options.index(st.session_state.surface_2d_type)
+            if st.session_state.surface_2d_type in surface_2d_options else 3,
+            key="surface_2d_type",
+        )
+
+        st.header("Зона и подсыпка")
+        st.number_input("X min", min_value=x_default_min, max_value=x_default_max, step=x_step, key="x_min")
+        st.number_input("X max", min_value=x_default_min, max_value=x_default_max, step=x_step, key="x_max")
+        st.number_input("Y min", min_value=y_default_min, max_value=y_default_max, step=y_step, key="y_min")
+        st.number_input("Y max", min_value=y_default_min, max_value=y_default_max, step=y_step, key="y_max")
+
+        st.number_input("Целевая отметка, м", step=0.01, format="%.2f", key="target_h")
+        st.selectbox(
+            "Тип грунта",
+            list(SOILS.keys()),
+            index=list(SOILS.keys()).index(st.session_state.soil),
+            key="soil",
+        )
+        st.checkbox("Исключать фундамент / H=0", key="exclude_zero")
+
+        if st.session_state.surface_2d_type == "Сток воды (D8)":
+            st.subheader("Параметры стока")
+            st.slider("Условный дождь, мм", min_value=1, max_value=100, key="flow_rain_mm")
+            st.slider("Доля поверхностного стока", min_value=0.0, max_value=1.0, step=0.05, key="flow_runoff_fraction")
+            st.checkbox("Показывать направления стока", key="flow_show_vectors")
+            st.slider("Шаг стрелок, м", min_value=1, max_value=10, key="flow_vector_step")
+
+        if st.session_state.surface_2d_type == "Подтопление по уровню":
+            if st.session_state.water_level is None:
+                st.session_state.water_level = float(np.round(np.nanmedian(Z), 2))
+            st.subheader("Уровень подтопления")
+            st.slider(
+                "Отметка уровня воды, м",
+                min_value=float(np.floor(np.nanmin(Z) * 100) / 100),
+                max_value=float(np.ceil(np.nanmax(Z) * 100) / 100),
+                step=0.01,
+                key="water_level",
+            )
+
+    elif st.session_state.mode == "3D статическая модель (Matplotlib)":
+        surface_options = [
+            "Поверхность с сеткой",
+            "Гладкая поверхность",
+            "Только каркас",
+            "Поверхность + каркас",
+        ]
         st.selectbox(
             "Тип 3D поверхности",
             surface_options,
-            index=surface_options.index(st.session_state.surface_type) if st.session_state.surface_type in surface_options else 3,
+            index=surface_options.index(st.session_state.surface_type)
+            if st.session_state.surface_type in surface_options else 3,
             key="surface_type",
         )
 
-    if st.session_state.mode == "Сток воды (D8)":
-        st.subheader("Параметры стока")
-        st.slider("Условный дождь, мм", min_value=1, max_value=100, key="flow_rain_mm")
-        st.slider("Доля поверхностного стока", min_value=0.0, max_value=1.0, step=0.05, key="flow_runoff_fraction")
-        st.checkbox("Показывать направления стока", key="flow_show_vectors")
-        st.slider("Шаг стрелок, м", min_value=1, max_value=10, key="flow_vector_step")
-
-    if st.session_state.mode == "Подтопление по уровню":
-        if st.session_state.water_level is None:
-            st.session_state.water_level = float(np.round(np.nanmedian(Z), 2))
-        st.subheader("Уровень подтопления")
-        st.slider(
-            "Отметка уровня воды, м",
-            min_value=float(np.floor(np.nanmin(Z) * 100) / 100),
-            max_value=float(np.ceil(np.nanmax(Z) * 100) / 100),
-            step=0.01,
-            key="water_level",
-        )
+    if not is_2d_mode:
+        st.info("Для выбора зоны и расчета подсыпки переключитесь на режим «2D модель».")
 
 x_min = min(st.session_state.x_min, st.session_state.x_max)
 x_max = max(st.session_state.x_min, st.session_state.x_max)
@@ -789,103 +835,133 @@ y_max = max(st.session_state.y_min, st.session_state.y_max)
 target_h = st.session_state.target_h
 soil = st.session_state.soil
 compaction = SOILS[soil]
+is_2d_mode = st.session_state.mode == "2D модель"
 
-volume, cells, selected_area = calc_fill_volume(
-    grid,
-    x_min,
-    x_max,
-    y_min,
-    y_max,
-    target_h,
-    exclude_zero=st.session_state.exclude_zero,
-)
-volume_compacted = volume * compaction
+volume = None
+cells = None
+selected_area = None
+volume_compacted = None
 
-kpi1, kpi2, kpi3, kpi4 = st.columns(4)
-kpi1.metric("Шаг сетки", f"{x_step:g} x {y_step:g} м")
-kpi2.metric("Площадь зоны", f"{selected_area:.1f} м²")
-kpi3.metric("Объем без уплотнения", f"{volume:.2f} м³")
-kpi4.metric("Заказать с уплотнением", f"{volume_compacted:.2f} м³")
+if is_2d_mode:
+    volume, cells, selected_area = calc_fill_volume(
+        grid,
+        x_min,
+        x_max,
+        y_min,
+        y_max,
+        target_h,
+        exclude_zero=st.session_state.exclude_zero,
+    )
+    volume_compacted = volume * compaction
+
+    kpi1, kpi2, kpi3, kpi4 = st.columns(4)
+    kpi1.metric("Шаг сетки", f"{x_step:g} x {y_step:g} м")
+    kpi2.metric("Площадь зоны", f"{selected_area:.1f} м²")
+    kpi3.metric("Объем без уплотнения", f"{volume:.2f} м³")
+    kpi4.metric("Заказать с уплотнением", f"{volume_compacted:.2f} м³")
+else:
+    kpi1, kpi2, kpi3 = st.columns(3)
+    kpi1.metric("Шаг сетки", f"{x_step:g} x {y_step:g} м")
+    kpi2.metric("Точек высот", f"{len(df):,}".replace(",", " "))
+    kpi3.metric("Диапазон высот", f"{np.nanmin(Z):.2f} ... {np.nanmax(Z):.2f} м")
 
 tabs = st.tabs(["Карта", "Расчет", "Данные", "Сохранение"])
 
 with tabs[0]:
     mode = st.session_state.mode
 
-    if mode == "Карта высот":
-        st.plotly_chart(render_heatmap(X, Y, Z, x_min, x_max, y_min, y_max), use_container_width=True)
+    if mode == "2D модель":
+        surface_2d_type = st.session_state.surface_2d_type
 
-    elif mode == "Горизонтали":
-        st.plotly_chart(render_contours(X, Y, Z, x_min, x_max, y_min, y_max, filled=False), use_container_width=True)
+        if surface_2d_type == "Карта высот":
+            st.plotly_chart(
+                render_heatmap(X, Y, Z, x_min, x_max, y_min, y_max, show_grid=False),
+                use_container_width=True,
+            )
 
-    elif mode == "Карта высот + горизонтали":
-        st.plotly_chart(render_contours(X, Y, Z, x_min, x_max, y_min, y_max, filled=True), use_container_width=True)
+
+        elif surface_2d_type == "Горизонтали":
+            st.plotly_chart(
+                render_contours(X, Y, Z, x_min, x_max, y_min, y_max, filled=False),
+                use_container_width=True,
+            )
+
+        elif surface_2d_type == "Карта высот + горизонтали":
+            st.plotly_chart(
+                render_contours(X, Y, Z, x_min, x_max, y_min, y_max, filled=True),
+                use_container_width=True,
+            )
+
+        elif surface_2d_type == "Сток воды (D8)":
+            fig, valid_area, rainfall_volume, max_point_runoff, sink_count = render_flow(
+                X,
+                Y,
+                grid,
+                st.session_state.flow_rain_mm,
+                st.session_state.flow_runoff_fraction,
+                st.session_state.flow_show_vectors,
+                st.session_state.flow_vector_step,
+            )
+            st.plotly_chart(fig, use_container_width=True)
+
+            c1, c2, c3, c4 = st.columns(4)
+            c1.metric("Площадь расчета", f"{valid_area:.0f} м²")
+            c2.metric("Сток от дождя", f"{rainfall_volume:.2f} м³")
+            c3.metric("Макс. приток к точке", f"{max_point_runoff:.2f} м³")
+            c4.metric("Внутренние понижения", f"{sink_count}")
+
+            st.caption("D8 - упрощенная модель по рельефу. Она не учитывает трубы, канавы, дренаж, растительность и реальную инфильтрацию.")
+
+        elif surface_2d_type == "Подтопление по уровню":
+            fig, flooded_area, closed_area, estimated_volume, closed_volume = render_flood(
+                X,
+                Y,
+                Z,
+                grid,
+                float(st.session_state.water_level),
+                x_min,
+                x_max,
+                y_min,
+                y_max,
+            )
+            st.plotly_chart(fig, use_container_width=True)
+
+            c1, c2, c3, c4 = st.columns(4)
+            c1.metric("Площадь ниже уровня", f"{flooded_area:.1f} м²")
+            c2.metric("Замкнутые низины", f"{closed_area:.1f} м²")
+            c3.metric("Объем до уровня", f"{estimated_volume:.1f} м³")
+            c4.metric("Объем в низинах", f"{closed_volume:.1f} м³")
+
+            st.caption("Подтопление оценочное по сетке. Для инженерного расчета нужны дренаж, водоприемники, фильтрация и рельеф между точками.")
 
     elif mode == "3D модель":
         st.plotly_chart(render_plotly_3d(Xg, Yg, Z), use_container_width=True)
+        st.info("Для выбора зоны и расчета подсыпки переключитесь на режим «2D модель».")
 
     elif mode == "3D статическая модель (Matplotlib)":
         buffer = render_static_3d(X, Y, Xg, Yg, Z, st.session_state.surface_type)
         st.image(buffer, caption="Изометрическая 3D-модель высот участка", use_container_width=True)
-
-    elif mode == "Сток воды (D8)":
-        fig, valid_area, rainfall_volume, max_point_runoff, sink_count = render_flow(
-            X,
-            Y,
-            grid,
-            st.session_state.flow_rain_mm,
-            st.session_state.flow_runoff_fraction,
-            st.session_state.flow_show_vectors,
-            st.session_state.flow_vector_step,
-        )
-        st.plotly_chart(fig, use_container_width=True)
-
-        c1, c2, c3, c4 = st.columns(4)
-        c1.metric("Площадь расчета", f"{valid_area:.0f} м²")
-        c2.metric("Сток от дождя", f"{rainfall_volume:.2f} м³")
-        c3.metric("Макс. приток к точке", f"{max_point_runoff:.2f} м³")
-        c4.metric("Внутренние понижения", f"{sink_count}")
-
-        st.caption("D8 - упрощенная модель по рельефу. Она не учитывает трубы, канавы, дренаж, растительность и реальную инфильтрацию.")
-
-    elif mode == "Подтопление по уровню":
-        fig, flooded_area, closed_area, estimated_volume, closed_volume = render_flood(
-            X,
-            Y,
-            Z,
-            grid,
-            float(st.session_state.water_level),
-            x_min,
-            x_max,
-            y_min,
-            y_max,
-        )
-        st.plotly_chart(fig, use_container_width=True)
-
-        c1, c2, c3, c4 = st.columns(4)
-        c1.metric("Площадь ниже уровня", f"{flooded_area:.1f} м²")
-        c2.metric("Замкнутые низины", f"{closed_area:.1f} м²")
-        c3.metric("Объем до уровня", f"{estimated_volume:.1f} м³")
-        c4.metric("Объем в низинах", f"{closed_volume:.1f} м³")
-
-        st.caption("Подтопление оценочное по сетке. Для инженерного расчета нужны дренаж, водоприемники, фильтрация и рельеф между точками.")
+        st.info("Для выбора зоны и расчета подсыпки переключитесь на режим «2D модель».")
 
 with tabs[1]:
     st.subheader("Расчет подсыпки")
 
-    summary = pd.DataFrame([
-        {"Показатель": "Границы зоны X", "Значение": f"{x_min:g} - {x_max:g} м"},
-        {"Показатель": "Границы зоны Y", "Значение": f"{y_min:g} - {y_max:g} м"},
-        {"Показатель": "Целевая отметка", "Значение": f"{target_h:.2f} м"},
-        {"Показатель": "Тип грунта", "Значение": soil},
-        {"Показатель": "Коэффициент уплотнения", "Значение": f"x{compaction:.2f}"},
-        {"Показатель": "Площадь расчетных ячеек", "Значение": f"{selected_area:.2f} м²"},
-        {"Показатель": "Проектный объем", "Значение": f"{volume:.2f} м³"},
-        {"Показатель": "Объем к заказу", "Значение": f"{volume_compacted:.2f} м³"},
-    ])
-    st.dataframe(summary, use_container_width=True, hide_index=True)
+    if not is_2d_mode:
+        st.warning("Расчет зоны подсыпки доступен только в режиме «2D модель». Переключитесь на него в боковой панели.")
+    else:
+        summary = pd.DataFrame([
+            {"Показатель": "Границы зоны X", "Значение": f"{x_min:g} - {x_max:g} м"},
+            {"Показатель": "Границы зоны Y", "Значение": f"{y_min:g} - {y_max:g} м"},
+            {"Показатель": "Целевая отметка", "Значение": f"{target_h:.2f} м"},
+            {"Показатель": "Тип грунта", "Значение": soil},
+            {"Показатель": "Коэффициент уплотнения", "Значение": f"x{compaction:.2f}"},
+            {"Показатель": "Площадь расчетных ячеек", "Значение": f"{selected_area:.2f} м²"},
+            {"Показатель": "Проектный объем", "Значение": f"{volume:.2f} м³"},
+            {"Показатель": "Объем к заказу", "Значение": f"{volume_compacted:.2f} м³"},
+        ])
+        st.dataframe(summary, use_container_width=True, hide_index=True)
 
-    st.warning("Коэффициент уплотнения - практическая оценка. Для закупки лучше добавлять отдельный запас на потери, разравнивание и фактическую влажность.")
+        st.warning("Коэффициент уплотнения - практическая оценка. Для закупки лучше добавлять отдельный запас на потери, разравнивание и фактическую влажность.")
 
 with tabs[2]:
     st.subheader("Точки высот")
@@ -903,6 +979,7 @@ with tabs[3]:
         "soil": st.session_state.soil,
         "exclude_zero": st.session_state.exclude_zero,
         "mode": st.session_state.mode,
+        "surface_2d_type": st.session_state.surface_2d_type,
         "surface_type": st.session_state.surface_type,
         "x_min": x_min,
         "x_max": x_max,
@@ -920,4 +997,4 @@ with tabs[3]:
         mime="application/json",
     )
 
-    st.info("JSON проекта содержит точки X,Y,H и настройки расчета. После сохранения его можно загрузить через 'Открыть проект JSON' в боковой панели.")
+    st.info("JSON проекта содержит точки X,Y,H и настройки расчета. Его можно потом открыть через блок 'Открыть проект JSON' в боковой панели.")
