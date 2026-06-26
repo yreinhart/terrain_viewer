@@ -931,18 +931,45 @@ with st.sidebar:
                 st.number_input("Порог водосбора, м²", min_value=0.0, step=5.0, key="stream_threshold")
 
         if vis == "Подтопление по уровню":
+            water_min = float(np.floor(np.nanmin(Z) * 100) / 100)
+            water_max = float(np.ceil(np.nanmax(Z) * 100) / 100)
+
+            # Streamlit не может создать slider с None в session_state.
+            if st.session_state.water_level is None:
+                st.session_state.water_level = float(np.round(np.nanmedian(Z), 2))
+            st.session_state.water_level = max(
+                water_min,
+                min(float(st.session_state.water_level), water_max)
+            )
+
             st.subheader("Уровень подтопления")
-            st.slider("Отметка уровня воды, м",
-                      min_value=float(np.floor(np.nanmin(Z) * 100) / 100),
-                      max_value=float(np.ceil(np.nanmax(Z) * 100) / 100),
-                      step=0.01, key="water_level")
+            st.slider(
+                "Отметка уровня воды, м",
+                min_value=water_min,
+                max_value=water_max,
+                step=0.01,
+                key="water_level"
+            )
 
         if vis == "Анимация подтопления":
+            water_min = float(np.floor(np.nanmin(Z) * 100) / 100)
+            water_max = float(np.ceil(np.nanmax(Z) * 100) / 100)
+
+            if st.session_state.animation_max_level is None:
+                st.session_state.animation_max_level = float(np.round(np.nanmedian(Z), 2))
+            st.session_state.animation_max_level = max(
+                water_min,
+                min(float(st.session_state.animation_max_level), water_max)
+            )
+
             st.subheader("Анимация подтопления")
-            st.slider("Конечный уровень воды, м",
-                      min_value=float(np.floor(np.nanmin(Z) * 100) / 100),
-                      max_value=float(np.ceil(np.nanmax(Z) * 100) / 100),
-                      step=0.01, key="animation_max_level")
+            st.slider(
+                "Конечный уровень воды, м",
+                min_value=water_min,
+                max_value=water_max,
+                step=0.01,
+                key="animation_max_level"
+            )
             st.slider("Количество кадров", min_value=5, max_value=40, key="animation_frames")
 
         if vis in ("Продольный профиль", "Поперечный профиль", "Разрез по двум точкам"):
@@ -1069,7 +1096,11 @@ with tabs[0]:
             st.caption("D8 - упрощенная модель. Не учитывает трубы, канавы, дренаж, растительность, размыв и фактическую инфильтрацию.")
 
         elif vis == "Подтопление по уровню":
-            fig, metrics = render_flood(X, Y, Z, grid, st.session_state.water_level, x_min, x_max, y_min, y_max)
+            fig, metrics = render_flood(
+                X, Y, Z, grid,
+                float(st.session_state.water_level if st.session_state.water_level is not None else np.nanmedian(Z)),
+                x_min, x_max, y_min, y_max
+            )
             st.plotly_chart(fig, use_container_width=True)
             a, b, c, d = st.columns(4)
             a.metric("Площадь ниже уровня", f"{metrics['flooded_area']:.1f} м²")
