@@ -311,7 +311,9 @@ def calculate_d8_flow(grid):
     interior = np.ones((rows, cols), dtype=bool)
     interior[[0, -1], :] = False
     interior[:, [0, -1]] = False
-    sinks = valid & interior & (to_row < 0)
+    # H=0 часто используется как условный фундамент. Плоская отметка фундамента
+    # иначе порождает много ложных "понижений" в D8, поэтому ее исключаем.
+    sinks = valid & interior & (to_row < 0) & ~np.isclose(z, 0.0)
 
     # Время до края/понижения. Модель очень упрощенная: скорость зависит от уклона.
     time_seconds = np.full((rows, cols), np.nan)
@@ -676,25 +678,134 @@ def render_static_3d(X, Y, Xg, Yg, Z, surface_type):
 
 
 def render_flow(X, Y, grid, rain_mm, runoff_fraction, show_vectors, vector_step, threshold=None):
+    """
+    Два разных режима:
+    - threshold=None: полная карта накопления стока D8.
+    - threshold=<м²>: только потенциальные русла, где водосбор достиг порога.
+    """
     flow = calculate_d8_flow(grid)
     acc = flow["accumulation"]
-    log_acc = np.where(flow["valid"], np.log10(np.maximum(acc, 1e-9)), np.nan)
-    fig = heatmap_figure(X, Y, log_acc, "Распределение поверхностного стока (D8)", "blues", "log10 водосбора, м²")
+    valid = flow["valid"]
+    z = grid.to_numpy(dtype=float)
 
-    if show_vectors:
-        line_x, line_y = build_flow_line_segments(X, Y, flow, vector_step, 0.0 if threshold is None else threshold)
-        fig.add_trace(go.Scatter(x=line_x, y=line_y, mode="lines", line=dict(color="rgba(10,10,10,0.45)", width=1), hoverinfo="skip", name="Направление стока"))
+    if threshold is None:
+        log_acc = np.where(valid, np.log10(np.maximum(acc, 1e-9)), np.nan)
+        fig = heatmap_figure(
+            X, Y, log_acc,
+            "Распределение поверхностного стока (D8)",
+            "blues",
+            "log10 водосбора, м²",
+        )
 
-    sink_rows, sink_cols = np.where(flow["sinks"])
-    if len(sink_rows):
-        fig.add_trace(go.Scatter(x=X[sink_cols], y=Y[sink_rows], mode="markers", marker=dict(symbol="x", size=10, color="red"), name="Внутренние понижения"))
+        if show_vectors:
+            line_x, line_y = build_flow_line_segments(
+                X, Y, flow, vector_step, min_accumulation=0.0
+            )
+            fig.add_trace(go.Scatter(
+                x=line_x,
+                y=line_y,
+                mode="lines",
+                line=dict(color="rgba(20,20,20,0.38)", width=1),
+                hoverinfo="skip",
+                name="Направление стока",
+            ))
+
+        sink_mask = flow["sinks"]
+        sink_rows, sink_cols = np.where(sink_mask)
+        if len(sink_rows):
+            fig.add_trace(go.Scatter(
+                x=X[sink_cols],
+                y=Y[sink_rows],
+                mode="markers",
+                marker=dict(symbol="x", size=9, color="red"),
+                name="Локальные понижения",
+                hovertemplate="Локальное понижение<br>X: %{x} м<br>Y: %{y} м<extra></extra>",
+            ))
+
+    else:
+        # Водотоки - только клетки, где к точке приходит водосбор не меньше порога.
+        # Это принципиально отличается от общей D8-карты, где цветится весь участок.
+        stream_mask = valid & (acc >= float(threshold))
+        stream_acc = np.where(stream_mask, acc, np.nan)
+
+        fig = go.Figure()
+
+        # Нейтральный фон рельефа.
+        fig.add_trace(go.Contour(
+            x=X,
+            y=Y,
+            z=z,
+            colorscale="Greys",
+            opacity=0.36,
+            contours=dict(
+                start=float(np.nanmin(z)),
+                end=float(np.nanmax(z)),
+                size=0.10,
+                coloring="heatmap",
+                showlabels=False,
+            ),
+            line=dict(color="rgba(80,80,80,0.25)", width=0.5),
+            colorbar=None,
+            showscale=False,
+            hoverinfo="skip",
+            name="Рельеф",
+        ))
+
+        # Ярко показываем только отобранные русла.
+        fig.add_trace(go.Heatmap(
+            x=X,
+            y=Y,
+            z=stream_acc,
+            colorscale="Blues",
+            zmin=float(threshold),
+            zmax=float(np.nanmax(acc)),
+            colorbar=dict(title="Водосбор, м²"),
+            hovertemplate=(
+                "X: %{x} м<br>"
+                "Y: %{y} м<br>"
+                "Площадь водосбора: %{z:.1f} м²"
+                "<extra></extra>"
+            ),
+            name="Потенциальный водоток",
+        ))
+
+        # Контур/линии направлений только внутри потенциальных русел.
+        if show_vectors:
+            line_x, line_y = build_flow_line_segments(
+                X, Y, flow, vector_step, min_accumulation=float(threshold)
+            )
+            fig.add_trace(go.Scatter(
+                x=line_x,
+                y=line_y,
+                mode="lines",
+                line=dict(color="rgba(0,45,100,0.85)", width=2),
+                hoverinfo="skip",
+                name="Направление водотока",
+            ))
+
+        stream_rows, stream_cols = np.where(stream_mask)
+        fig.add_trace(go.Scatter(
+            x=X[stream_cols],
+            y=Y[stream_rows],
+            mode="markers",
+            marker=dict(size=3, color="rgba(0,70,140,0.9)"),
+            hoverinfo="skip",
+            name="Клетки русла",
+        ))
+
+        fig.update_layout(
+            title=f"Потенциальные водотоки: водосбор от {float(threshold):.0f} м²",
+            xaxis_title="X, м",
+            yaxis_title="Y, м",
+            height=820,
+        )
+        fig.update_yaxes(scaleanchor="x", scaleratio=1)
 
     _, _, cell_area = get_grid_step(grid)
-    valid_area = float(np.count_nonzero(flow["valid"]) * cell_area)
+    valid_area = float(np.count_nonzero(valid) * cell_area)
     rain_volume = valid_area * rain_mm / 1000 * runoff_fraction
     max_point = float(np.nanmax(acc) * rain_mm / 1000 * runoff_fraction)
     return fig, flow, valid_area, rain_volume, max_point
-
 
 def render_flood(X, Y, Z, grid, water_level, x_min, x_max, y_min, y_max):
     flood = analyse_flooding(grid, water_level)
@@ -1085,8 +1196,6 @@ with tabs[0]:
                 X, Y, grid, st.session_state.flow_rain_mm, st.session_state.flow_runoff_fraction,
                 st.session_state.flow_show_vectors, st.session_state.flow_vector_step, threshold
             )
-            if vis == "Потенциальные водотоки":
-                fig.update_layout(title=f"Потенциальные водотоки: водосбор от {threshold:.0f} м²")
             st.plotly_chart(fig, use_container_width=True)
             a, b, c, d = st.columns(4)
             a.metric("Площадь расчета", f"{valid_area:.0f} м²")
