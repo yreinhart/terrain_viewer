@@ -861,14 +861,26 @@ def render_flood_animation(X, Y, grid, max_level, frames_count):
     )
 
     fig.update_layout(
-        title="Анимация повышения уровня воды",
+        title=dict(
+            text="Анимация повышения уровня воды",
+            x=0.5,
+            xanchor="center",
+            y=0.98,
+            yanchor="top",
+        ),
         xaxis_title="X, м",
         yaxis_title="Y, м",
-        height=820,
+        height=860,
+        margin=dict(t=115, b=125, l=70, r=40),
         updatemenus=[{
             "type": "buttons",
             "showactive": False,
-            "x": 0.1, "y": 1.12,
+            "direction": "left",
+            "x": 1.0,
+            "xanchor": "right",
+            "y": 1.10,
+            "yanchor": "bottom",
+            "pad": {"r": 6, "t": 0},
             "buttons": [
                 {"label": "▶ Воспроизвести", "method": "animate", "args": [None, {"frame": {"duration": 300, "redraw": True}, "fromcurrent": True}]},
                 {"label": "■ Стоп", "method": "animate", "args": [[None], {"mode": "immediate", "frame": {"duration": 0, "redraw": False}}]},
@@ -876,7 +888,12 @@ def render_flood_animation(X, Y, grid, max_level, frames_count):
         }],
         sliders=[{
             "active": 0,
-            "x": 0.1, "len": 0.8, "y": -0.08,
+            "x": 0.10,
+            "len": 0.80,
+            "y": -0.12,
+            "xanchor": "left",
+            "yanchor": "top",
+            "pad": {"t": 25, "b": 0},
             "steps": [{"label": f"{level:.2f} м", "method": "animate", "args": [[f"{level:.2f}"], {"mode": "immediate", "frame": {"duration": 0, "redraw": True}}]} for level in levels],
         }],
     )
